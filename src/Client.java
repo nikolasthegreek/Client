@@ -7,9 +7,8 @@ public class Client {
     static private int Port = 8314;// change this for port
     static private String serverHost = "localhost"; // Local IP or "localhost"
     static private int TimeoutAttemts=3;//how many times it will re send a message before desconecting due to timeout
-    static private int TimeoutAttemtsInterval=1;//seconds between atemts
     static private int TimeoutWrongLimit=6;// after how many wrong messages will it disconect (both wrong time and uninteligable)
-    static private String Domain="SRV";//used as part of SMTP (the server will play along)
+    static private String Domain="SERVER";//used as part of SMTP (the server will play along)
 
     static private Scanner Scann;
     static private Log ClientLog;
@@ -20,17 +19,11 @@ public class Client {
     static private String MessageOUT="";
     static private String MessageIN="";
     static private String UserEmai;
-    static private String Mail;
-    static private boolean ThreadActive=true;
+    static private String MailRCPT;//temprary storage for recipient
     static private int WrongMessageCounter=0;
     static private int MessageCheckCounter=0;
     static private int MessageChecksMax=10;
     static private int AttemtCounter=0;
-    static private boolean AttemtReSend=false;
-    
-
-    static private int KeyExchangeStage=0;
-    static private boolean KeysExchanged=false;
 
     public static void main(String[] args) {
         //init of client
@@ -64,22 +57,59 @@ public class Client {
                                 Reply = SMTPSend(SMTP.MAIL(UserEmai));//sends MAIL
                                 if(Reply.Code.equals("250")){
                                     System.out.println("~where do you want to send it:");
-                                    Reply = SMTPSend(SMTP.RCPT(Scann.nextLine()));//reads recipient adress and sends RCPT
+                                    MessageOUT=Scann.nextLine();
+                                    Reply = SMTPSend(SMTP.RCPT(MessageOUT));//reads recipient adress and sends RCPT
                                     if(Reply.Code.equals("250")){
-
+                                        MailRCPT=MessageOUT;
+                                        Reply = SMTPSend(SMTP.DATA());//sends DATA command
+                                        if(Reply.Code.equals("354")){
+                                            MessageOUT=Scann.nextLine();
+                                            while(true){//loop for sending lines of text
+                                                
+                                                if(MessageOUT.equals(".")){
+                                                    break;
+                                                }
+                                                MessageEncriptedSend(MessageOUT);
+                                                MessageOUT=Scann.nextLine();
+                                            }
+                                            Reply = SMTPSend(SMTP.Dot());//ends transmition of text
+                                            if(Reply.Code.equals("250")){
+                                                System.out.println("~MAil send successfuly to:"+MailRCPT);
+                                                ClientLog.WriteLog("MAIL SENT SUCCESSFULY TO:"+MailRCPT);
+                                            }else{
+                                                System.err.println("&failed DOT try again:"+Reply.Code);
+                                                ClientLog.WriteLog("DOT COMMAND FAILED:"+Reply.Code);
+                                            }
+                                        }else{
+                                            System.err.println("&failed DATA try again:"+Reply.Code);
+                                            ClientLog.WriteLog("DATA COMMAND FAILED:"+Reply.Code);
+                                        }
                                     }else{
-                                        System.out.println("&failed RCPT try again:"+Reply.Code);
+                                        System.err.println("&failed RCPT try again:"+Reply.Code);
                                         ClientLog.WriteLog("RCPT COMMAND FAILED:"+Reply.Code);
                                     }
                                 }else{
-                                    System.out.println("&failed mail try again:"+Reply.Code);
+                                    System.err.println("&failed mail try again:"+Reply.Code);
                                     ClientLog.WriteLog("MAIL COMMAND FAILED:"+Reply.Code);
                                 }
 
-                            }else if (CMDString.equals("HELP")){//send mail command
-                                
-                            }else if (CMDString.equals("NOOP")){//send mail command
-                                
+                            }else if (CMDString.equals("HELP")){//send HELP command
+                                Reply = SMTPSend(SMTP.HELP(Scann.nextLine()));//takes user input and sends HELP
+                                if(Reply.Code.equals("214")){
+                                    System.out.println("Help:"+Reply.Message);
+                                    ClientLog.WriteLog("HELP COMMAND SUCCESS");
+                                }else{
+                                    System.err.println("&failed HELP try again:"+Reply.Code);
+                                    ClientLog.WriteLog("HELP COMMAND FAILED:"+Reply.Code);
+                                }
+                            }else if (CMDString.equals("NOOP")){//send NOOP command
+                                if(Reply.Code.equals("250")){
+                                    System.out.println("~NOOP succeded");
+                                    ClientLog.WriteLog("NOOP COMMAND SUCCESS");
+                                }else{
+                                    System.err.println("&failed NOOP try again:"+Reply.Code);
+                                    ClientLog.WriteLog("NOOP COMMAND FAILED:"+Reply.Code);
+                                }
                             }
                         }
 
@@ -250,6 +280,7 @@ public class Client {
 
     static private void MessageSend(String Message){
         try{
+            
             os.write(Message);
             os.newLine();
             os.flush();
@@ -267,6 +298,7 @@ public class Client {
         }
     }
     static private SMTPCodes SMTPSend(String Message){
+        System.out.println("~SMTP MSG:"+Message);
         MessageOUT=Message;
         MessageEncriptedSend(MessageOUT);
         return SMTPReplyWait();

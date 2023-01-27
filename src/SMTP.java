@@ -20,4 +20,10 @@ public class SMTP {
     static public String Dot(){
         return ".";
     }
+    static public String RSET(){
+        return "RSET ";
+    }
+    static public String HELP(String Help){
+        return "HELP "+Help;
+    }
 }
