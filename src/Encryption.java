@@ -21,7 +21,6 @@ public class Encryption {
     private static PublicKey PubKey;// public key for RSA encription(to be sent to others)
     private static Cipher DecryptCipher;
 
-    private PublicKey ClientPubKey;// public key from clients not the servers
     private Cipher EncryptCipher;
 
     private static boolean KeysReady = false;
@@ -106,7 +105,6 @@ public class Encryption {
 
     static public String Hash(String HexSalt,String string){
         try{
-            SecureRandom random = new SecureRandom();
             byte[] salt = Bytehex.decodeHexString(HexSalt);
             KeySpec spec = new PBEKeySpec(string.toCharArray(), salt, 65536, 640);
             SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");

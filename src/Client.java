@@ -1,6 +1,6 @@
 import java.io.*;
 import java.net.*;
-import java.nio.charset.StandardCharsets;
+import java.util.Scanner;
 
 public class Client {
     //Client config
@@ -9,14 +9,18 @@ public class Client {
     static private int TimeoutAttemts=3;//how many times it will re send a message before desconecting due to timeout
     static private int TimeoutAttemtsInterval=1;//seconds between atemts
     static private int TimeoutWrongLimit=6;// after how many wrong messages will it disconect (both wrong time and uninteligable)
+    static private String Domain="SRV";//used as part of SMTP (the server will play along)
 
-
+    static private Scanner Scann;
+    static private Log ClientLog;
     static private Socket socketOfClient ;
     static private BufferedWriter os;
     static private BufferedReader is ;
     static private Encryption ClientEncript;
     static private String MessageOUT="";
     static private String MessageIN="";
+    static private String UserEmai;
+    static private String Mail;
     static private boolean ThreadActive=true;
     static private int WrongMessageCounter=0;
     static private int MessageCheckCounter=0;
@@ -29,33 +33,88 @@ public class Client {
     static private boolean KeysExchanged=false;
 
     public static void main(String[] args) {
-
+        //init of client
+        Log.LOGSINIT();
+        ClientLog = new Log("CLIENT");
+        Scann=new Scanner(System.in);
+        Encryption.GenerateKeys();
+        Encryption.InitDecrypCipher();
         ConnectToServer();
         ClientEncript = new Encryption();
+        ClientLog.WriteLog("INIT COMPLEAT");
+
+        //interaction with server
         ClientKeyExchange();
+        if(LogIn()){//if login was successfull
+            while(WaitForMessage()){}
+            MessageIN=ReadEncrypted();
+            SMTPCodes Reply = new SMTPCodes(MessageIN);
+            if(Reply.Code.equals("220")){
+                Reply = SMTPSend(SMTP.HELO(Domain));
+                if(Reply!=null){//in case of failed communication
+                    if(Reply.Code.equals("250")){//successful login
+                        ClientLog.WriteLog("SUCCESSFUL HELO: "+Reply.Code + Reply.Message);
+                        
+                        while(true){
+                            String CMDString =Scann.nextLine();
+                            if(CMDString.equals("END")){//exit command
+                                ClientLog.WriteLog("END COMMAND GIVEN");
+                                break;
+                            }else if (CMDString.equals("SEND MAIL")){//send mail command
+                                Reply = SMTPSend(SMTP.MAIL(UserEmai));//sends MAIL
+                                if(Reply.Code.equals("250")){
+                                    System.out.println("~where do you want to send it:");
+                                    Reply = SMTPSend(SMTP.RCPT(Scann.nextLine()));//reads recipient adress and sends RCPT
+                                    if(Reply.Code.equals("250")){
+
+                                    }else{
+                                        System.out.println("&failed RCPT try again:"+Reply.Code);
+                                        ClientLog.WriteLog("RCPT COMMAND FAILED:"+Reply.Code);
+                                    }
+                                }else{
+                                    System.out.println("&failed mail try again:"+Reply.Code);
+                                    ClientLog.WriteLog("MAIL COMMAND FAILED:"+Reply.Code);
+                                }
+
+                            }else if (CMDString.equals("HELP")){//send mail command
+                                
+                            }else if (CMDString.equals("NOOP")){//send mail command
+                                
+                            }
+                        }
 
 
-        
+                        
+                        Reply = SMTPSend(SMTP.QUIT());//sends quit to denote end of communication
+                    }else{
+                        System.err.println("&failed HELO: "+Reply.Code + Reply.Message);
+                        ClientLog.WriteLog("FAILED HELO: "+Reply.Code + Reply.Message);
+                    }
+                }
+            }
+        }
+        //exit
+        TerminateConnection();
+        ClientLog.TerminateLog();
     }
 
     static private void ConnectToServer(){
         try {
-            Encryption.GenerateKeys();
-            Encryption.InitDecrypCipher();
-            System.out.println();
+            
             socketOfClient = new Socket(serverHost, Port);
             os = new BufferedWriter(new OutputStreamWriter(socketOfClient.getOutputStream()));
             is = new BufferedReader(new InputStreamReader(socketOfClient.getInputStream()));
-
+            ClientLog.WriteLog("SUCCESSFUL CONNECTION: ");
         } catch (UnknownHostException e) {
             System.err.println("&Don't know about host " + serverHost);
+            ClientLog.WriteLog("FAILED TO CONNECT UNKNOWN HOST "+ e);
             return;
         } catch (IOException e) {
             System.err.println("&Couldn't get I/O for the connection to " + serverHost);
-            return;
+            ClientLog.WriteLog("FAILED TO CONNECT IOEXC: "+ e);
+            return;            
         }
     }
-    
     static private void ClientKeyExchange(){
         //public key exchange
         //C:HELLO
@@ -73,6 +132,7 @@ public class Client {
                 if(WrongMessageCounter>TimeoutWrongLimit){
                     TerminateConnection();
                     System.err.println("&connection timmed out");
+                    ClientLog.WriteLog("TIMEOUT");
                     System.exit(0);
                 }
                 while(WaitForMessage()){
@@ -80,6 +140,7 @@ public class Client {
                     
                     if(AttemtCounter>TimeoutAttemts){
                         System.err.println("&connection timmed out invalid communication");
+                        ClientLog.WriteLog("TIMEOUT");
                         TerminateConnection();
                         System.exit(0);
                     }
@@ -96,6 +157,7 @@ public class Client {
                 if(AttemtCounter>TimeoutAttemts){
                     TerminateConnection();
                     System.err.println("&connection timmed out");
+                    ClientLog.WriteLog("TIMEOUT");
                     System.exit(0);
                 }
             }
@@ -108,6 +170,7 @@ public class Client {
                 if(AttemtCounter>TimeoutAttemts){
                     TerminateConnection();
                     System.err.println("&connection timmed out");
+                    ClientLog.WriteLog("TIMEOUT");
                     System.exit(0);
                 }
             }
@@ -119,6 +182,7 @@ public class Client {
                 if(WrongMessageCounter>TimeoutWrongLimit){
                     TerminateConnection();
                     System.err.println("&connection timmed out");
+                    ClientLog.WriteLog("TIMEOUT");
                     System.exit(0);
                 }
                 while(WaitForMessage()){
@@ -126,6 +190,7 @@ public class Client {
                     MessageEncriptedSend(MessageOUT);
                     if(AttemtCounter>TimeoutAttemts){
                         System.err.println("&connection timmed out invalid communication");
+                        ClientLog.WriteLog("TIMEOUT");
                         TerminateConnection();
                         System.exit(0);
                     }
@@ -140,6 +205,47 @@ public class Client {
             System.err.println("&Failed to exchange keys : " + e);
             System.exit(0);
         }
+        ClientLog.WriteLog("SUCCESSFUL KEY EXCHANGE");
+    }
+    static private boolean LogIn(){
+        System.out.println("Email:");
+        MessageOUT=Scann.nextLine();//gets user iput
+        MessageEncriptedSend(MessageOUT);
+        while(!MessageOUT.equals("EXIT")){//condition to leave login
+            while(WaitForMessage()){}
+            MessageIN=ReadEncrypted();
+            if(MessageIN.equals("GOODEMAIL")){// server accepted email
+                UserEmai=MessageOUT;//saves user path for later transactions like MAIL
+                System.out.println("Password:");
+                while(true){
+                    MessageOUT=Scann.nextLine();
+                    MessageEncriptedSend(MessageOUT);
+                    while(WaitForMessage()){}
+                    MessageIN=ReadEncrypted();
+                    if(MessageIN.equals("SUCCESSFUL LOGIN")){
+                        ClientLog.WriteLog("SUCCESSFUL LOGGIN");
+                        return true;//successful login
+                    }
+                    else if (MessageIN.equals("PASSWORDWRONG")) {
+                        System.out.println("Wrong password:");//wrong pasword
+                    }
+                    else if(MessageIN.equals("PASSWORDFAIL")){
+                        System.out.println("&failed password login (exided atempts)");
+                        ClientLog.WriteLog("FAILED LOGGIN WRONG PASSWORD");//failed too many times
+                        return false;
+                    }
+                }
+            }else if(MessageIN.equals("WRONGEMAIL")){
+                System.out.println("Wrong email if you wish to exit write EXIT:");
+            }
+            MessageOUT=Scann.nextLine();
+            MessageEncriptedSend(MessageOUT);
+            
+        }
+        ClientLog.WriteLog("FAILED LOGGIN NO EMAIL");
+        return false;
+
+        
     }
 
     static private void MessageSend(String Message){
@@ -151,7 +257,6 @@ public class Client {
             System.err.println("&Message failed to be sent "+e);
         }
     }
-    
     static private void MessageEncriptedSend(String Message){
         try{
             os.write(ClientEncript.Encript(Message));
@@ -161,7 +266,12 @@ public class Client {
             System.err.println("&Message failed to be sent "+e);
         }
     }
-    
+    static private SMTPCodes SMTPSend(String Message){
+        MessageOUT=Message;
+        MessageEncriptedSend(MessageOUT);
+        return SMTPReplyWait();
+    }
+
     static private String ReadEncrypted(){
         try{
             return Encryption.DeCrypt(is.readLine());
@@ -195,7 +305,27 @@ public class Client {
         }
         return false;
     }
-    
+    static private SMTPCodes SMTPReplyWait(){
+        while(WaitForMessage()){
+            MessageSend(MessageOUT);
+            AttemtCounter++;
+            if(AttemtCounter>TimeoutAttemts){
+                TerminateConnection();
+                System.err.println("&connection timmed out");
+                ClientLog.WriteLog("TIMEOUT");
+                System.exit(0);
+            }
+        }
+        AttemtCounter=0;
+        MessageIN=ReadEncrypted();
+        SMTPCodes Reply = new SMTPCodes(MessageIN);
+        if(Reply.IsValid(ClientLog,MessageOUT)){
+            System.out.println("~SMTP RPL: "+Reply.Code+Reply.Message);
+            return Reply;
+        }
+        return null;
+    }
+
     static private void TerminateConnection(){
         try{
             os.close();
